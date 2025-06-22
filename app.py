@@ -7,7 +7,7 @@ app = Flask(__name__)
 
 API_GOC = "https://wanglinapiws.up.railway.app/api/taixiu"
 
-# ==================== Hỗ trợ chung ====================
+# ========== HỖ TRỢ CHUNG ==========
 def get_tai_xiu(total):
     return "Tài" if 11 <= total <= 18 else "Xỉu"
 
@@ -29,7 +29,7 @@ def call_api_goc(totals):
         pass
     return {}
 
-# ==================== 10 THUẬT TOÁN DỰ ĐOÁN ====================
+# ========== 10 THUẬT TOÁN ==========
 def rule1(totals):
     if len(totals) < 4: return None
     last = totals[-4:]
@@ -92,25 +92,24 @@ def rule10(totals):
     t = totals[-1]
     return ("Tài", 70, "Mặc định bẻ cầu") if get_tai_xiu(t) == "Xỉu" else ("Xỉu", 70, "Mặc định bẻ cầu")
 
-# ==================== TỔNG HỢP DỰ ĐOÁN ====================
+# ========== CHẠY TOÀN BỘ LUẬT ==========
 def run_all_rules(totals):
     for rule in [rule1, rule2, rule3, rule4, rule5, rule6, rule7, rule8, rule9]:
         res = rule(totals)
         if res: return res
     return rule10(totals)
 
-# ==================== API CHÍNH ====================
-@app.route('/api/taixiu', methods=['GET', 'POST'])
+# ========== API ==========
+@app.route("/api/taixiu", methods=["GET", "POST"])
 def api_taixiu():
-    if request.method == 'GET':
-        return jsonify({
-            "message": "Gửi POST với JSON: {\"totals_list\": [12,13,14]}"
-        })
-
-    data = request.get_json()
-    totals = data.get("totals_list", [])
-    if not isinstance(totals, list) or not all(isinstance(x, int) for x in totals):
-        return jsonify({"error": "totals_list phải là list số nguyên"}), 400
+    if request.method == "GET":
+        # mặc định test với mẫu
+        totals = [12, 14, 11, 13, 9]
+    else:
+        data = request.get_json()
+        totals = data.get("totals_list", [])
+        if not isinstance(totals, list) or not all(isinstance(x, int) for x in totals):
+            return jsonify({"error": "totals_list phải là list số nguyên"}), 400
 
     pred, conf, reason = run_all_rules(totals)
     thongke = tai_xiu_stats(totals)
@@ -144,6 +143,7 @@ def api_taixiu():
         "So_lan_xiu": thongke["xiu_count"]
     })
 
+# ========== KHỞI CHẠY ==========
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     app.run(debug=True, host="0.0.0.0", port=port)
