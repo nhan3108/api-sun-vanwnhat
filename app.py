@@ -42,10 +42,34 @@ def home():
 @app.route('/api/taixiu', methods=['GET', 'POST'])
 def api_taixiu():
     if request.method == 'GET':
+        # Gọi API gốc luôn với dữ liệu mẫu
+        default_data = [11, 12, 13, 10, 9]
+        pred, conf, reason = run_all_rules(default_data)
+        thongke = tai_xiu_stats(default_data)
+        tong = default_data[-1]
+        phien = len(default_data)
+        api_truoc = call_api_goc(default_data)
+
         return jsonify({
-            "message": "Dùng POST để gửi totals_list. Ví dụ: {\"totals_list\": [12,13,11]}"
+            "Phien": phien,
+            "Phien_sau": phien + 1,
+            "Phien_truoc": api_truoc.get("Phien"),
+            "Ket_qua_truoc": api_truoc.get("Ket_qua"),
+            "Xuc_xac_truoc": [
+                api_truoc.get("Xuc_xac1"),
+                api_truoc.get("Xuc_xac2"),
+                api_truoc.get("Xuc_xac3")
+            ],
+            "Tong_truoc": api_truoc.get("Tong"),
+            "Tong": tong,
+            "Du_doan": pred,
+            "Tin_cay": f"{conf}%",
+            "Mau_cau": reason,
+            "So_lan_tai": thongke["tai_count"],
+            "So_lan_xiu": thongke["xiu_count"]
         })
 
+    # Trường hợp POST: dùng dữ liệu người dùng gửi
     data = request.get_json()
     totals = data.get("totals_list", [])
     if not isinstance(totals, list) or not all(isinstance(x, int) for x in totals):
@@ -75,6 +99,7 @@ def api_taixiu():
         "So_lan_tai": thongke["tai_count"],
         "So_lan_xiu": thongke["xiu_count"]
     })
+
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
