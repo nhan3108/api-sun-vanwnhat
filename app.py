@@ -1,127 +1,132 @@
 
-from flask import Flask, jsonify
+from flask import Flask, request, jsonify
+from collections import Counter
 import requests
-import random
-import json
-import os
 
 app = Flask(__name__)
-DB_FILE = "db.json"
 
-def load_db():
-    if not os.path.exists(DB_FILE):
-        return {"history": [], "dudoan_dung": 0, "dudoan_sai": 0}
-    with open(DB_FILE, "r") as f:
-        return json.load(f)
+API_GOC = "https://wanglinapiws.up.railway.app/api/taixiu"
 
-def save_db(db_data):
-    with open(DB_FILE, "w") as f:
-        json.dump(db_data, f, indent=2)
-
+# ==================== Hỗ trợ chung ====================
 def get_tai_xiu(total):
     return "Tài" if 11 <= total <= 18 else "Xỉu"
 
-def get_pattern(history_list):
-    return ''.join(['t' if i['result'] == "Tài" else 'x' for i in history_list])[-20:]
+def tai_xiu_stats(totals_list):
+    types = [get_tai_xiu(t) for t in totals_list]
+    cnt = Counter(types)
+    return {
+        "tai_count": cnt["Tài"],
+        "xiu_count": cnt["Xỉu"],
+        "average_total": round(sum(totals_list) / len(totals_list), 2),
+    }
 
-def expert_votes(totals_list, pattern):
-    votes = []
-
-    # Rule A: A-B-A => đảo
-    if len(totals_list) >= 3 and totals_list[-3] == totals_list[-1] and totals_list[-2] != totals_list[-1]:
-        votes.append("rule_A: Xỉu" if get_tai_xiu(totals_list[-1]) == "Tài" else "rule_A: Tài")
-
-    # Rule B: 3 tài liên tục
-    if pattern.endswith("ttt"):
-        votes.append("rule_B: Xỉu")
-    elif pattern.endswith("xxx"):
-        votes.append("rule_B: Tài")
-
-    # Rule C: Số trung bình xuất hiện nhiều
-    if totals_list[-1] in [8,9,10] and totals_list.count(totals_list[-1]) >= 3:
-        votes.append("rule_C: Xỉu")
-
-    # Rule D: Default đảo 1-1
-    votes.append("rule_D: Xỉu" if get_tai_xiu(totals_list[-1]) == "Tài" else "rule_D: Tài")
-
-    return votes
-
-def final_prediction(votes):
-    counts = {"Tài": 0, "Xỉu": 0}
-    for vote in votes:
-        if "Tài" in vote: counts["Tài"] += 1
-        if "Xỉu" in vote: counts["Xỉu"] += 1
-    if counts["Tài"] > counts["Xỉu"]:
-        return "Tài"
-    return "Xỉu"
-
-@app.route('/api/du-doan', methods=['GET'])
-def du_doan():
+def call_api_goc(totals):
     try:
-        url = "http://wanglinapiws.up.railway.app/api/taixiu"
-        res = requests.get(url)
-        data = res.json()
+        r = requests.post(API_GOC, json={"totals_list": totals})
+        if r.status_code == 200:
+            return r.json()
+    except:
+        pass
+    return {}
 
-        phien = data.get("Phien")
-        ket_qua = data.get("Ket_qua")
-        tong = data.get("Tong")
-        x1 = data.get("Xuc_xac_1")
-        x2 = data.get("Xuc_xac_2")
-        x3 = data.get("Xuc_xac_3")
-        next_phien = phien + 1 if phien else None
+# ==================== 10 THUẬT TOÁN DỰ ĐOÁN ====================
+def rule1(totals):  # Thủ công cầu đặc biệt
+    if len(totals) < 4: return None
+    last = totals[-4:]
+    if last[0] == last[2] == last[3] and last[1] != last[0]:
+        return "Tài", 90, f"Cầu đặc biệt {last}."
 
-        history = data.get("history", [])
-        totals_list = [item.get("Tong") for item in history if isinstance(item.get("Tong"), int)]
-        if tong:
-            totals_list.append(tong)
-        pattern = get_pattern(history) if history else "txtxtxtxtxtxtxtxtxtxt"
+def rule2(totals):  # Sandwich A-B-A
+    if len(totals) < 3: return None
+    l = totals[-3:]
+    if l[0] == l[2] and l[0] != l[1]:
+        res = get_tai_xiu(l[2])
+        return "Xỉu" if res == "Tài" else "Tài", 88, f"Cầu sandwich {l}."
 
-        # Expert system vote
-        votes = expert_votes(totals_list, pattern)
-        prediction = final_prediction(votes)
-        reason = f"Phân tích {len(votes)} mô hình: {votes}"
-        tin_cay = round(random.uniform(85, 99.99), 2)
+def rule3(totals):  # Có nhiều số 7,9,10 gần đây
+    if len(totals) < 3: return None
+    c = sum(1 for x in totals[-3:] if x in [7,9,10])
+    if c >= 2:
+        res = get_tai_xiu(totals[-1])
+        return "Xỉu" if res == "Tài" else "Tài", 85, "≥2 số đặc biệt 7/9/10."
 
-        db = load_db()
-        if db["history"]:
-            last = db["history"][-1]
-            if last["Phien"] != phien:
-                if last["prediction"] == ket_qua:
-                    db["dudoan_dung"] += 1
-                else:
-                    db["dudoan_sai"] += 1
+def rule4(totals):  # Lặp lại nhiều lần 1 số
+    last = totals[-1]
+    if totals[-6:].count(last) >= 3:
+        return get_tai_xiu(last), 82, f"Số {last} lặp lại ≥3 lần."
 
-        db["history"].append({
-            "Phien": phien,
-            "prediction": prediction,
-            "real_result": ket_qua
-        })
-        db["history"] = db["history"][-100:]
-        save_db(db)
+def rule5(totals):  # Pattern A-B-B hoặc A-B-A
+    if len(totals) < 3: return None
+    l = totals[-3:]
+    if l[0] == l[2] or l[1] == l[2]:
+        res = get_tai_xiu(l[-1])
+        return "Xỉu" if res == "Tài" else "Tài", 80, "Pattern A-B-A hoặc A-B-B"
 
-        return jsonify({
-            "Phien": phien,
-            "Ket_qua": ket_qua,
-            "Tong": tong,
-            "Xuc_xac_1": x1,
-            "Xuc_xac_2": x2,
-            "Xuc_xac_3": x3,
-            "Next_phien": next_phien,
-            "prediction": prediction,
-            "tincay": f"{tin_cay}%",
-            "reason": reason,
-            "pattern": pattern,
-            "expert_votes": votes,
-            "id": "VanwNhat",
-            "Dudoan_dung": db["dudoan_dung"],
-            "Dudoan_sai": db["dudoan_sai"]
-        })
+def rule6(totals):  # Chuỗi Tài hoặc Xỉu liên tiếp
+    types = [get_tai_xiu(x) for x in totals]
+    chain = 1
+    for i in range(len(types)-1, 0, -1):
+        if types[i] == types[i-1]: chain += 1
+        else: break
+    if chain >= 4:
+        return "Xỉu" if types[-1]=="Tài" else "Tài", 78, f"{chain} lần {types[-1]} liên tiếp"
 
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+def rule7(totals):  # Tăng hoặc giảm liên tiếp
+    if len(totals) < 3: return None
+    a,b,c = totals[-3:]
+    if a<b<c or a>b>c:
+        res = get_tai_xiu(c)
+        return "Xỉu" if res == "Tài" else "Tài", 77, "3 phiên tăng/giảm liên tiếp"
 
-if __name__ == '__main__':
-    import os
-    port = int(os.environ.get("PORT", 8080))
-    app.run(host='0.0.0.0', port=port, debug=False, use_reloader=False)
+def rule8(totals):  # Tổng cực trị
+    if totals[-1] <= 5 or totals[-1] >= 16:
+        res = get_tai_xiu(totals[-1])
+        return "Xỉu" if res == "Tài" else "Tài", 76, "Tổng cực trị"
 
+def rule9(totals):  # Trung bình 6 gần nhất cao/thấp
+    if len(totals) < 6: return None
+    avg = sum(totals[-6:]) / 6
+    return ("Tài", 74, "Trung bình cao → Tài") if avg >= 11.5 else ("Xỉu", 74, "Trung bình thấp → Xỉu")
+
+def rule10(totals):  # Dự đoán ngẫu nhiên thông minh
+    t = totals[-1]
+    return ("Tài", 70, "Mặc định bẻ cầu") if get_tai_xiu(t) == "Xỉu" else ("Xỉu", 70, "Mặc định bẻ cầu")
+
+# ==================== TỔNG HỢP DỰ ĐOÁN ====================
+def run_all_rules(totals):
+    for rule in [rule1, rule2, rule3, rule4, rule5, rule6, rule7, rule8, rule9]:
+        res = rule(totals)
+        if res: return res
+    return rule10(totals)
+
+# ==================== API CHÍNH ====================
+@app.route('/api/taixiu', methods=['POST'])
+def api_taixiu():
+    data = request.get_json()
+    totals = data.get("totals_list", [])
+    if not isinstance(totals, list) or not all(isinstance(x, int) for x in totals):
+        return jsonify({"error": "totals_list phải là list số nguyên"}), 400
+
+    pred, conf, reason = run_all_rules(totals)
+    thongke = tai_xiu_stats(totals)
+    tong = totals[-1]
+    phien = len(totals)
+    api_truoc = call_api_goc(totals)
+
+    return jsonify({
+        "Phien": phien,
+        "Phien_sau": phien + 1,
+        "Phien_truoc": api_truoc.get("Phien"),
+        "Ket_qua_truoc": api_truoc.get("Ket_qua"),
+        "Xuc_xac_truoc": [api_truoc.get("Xuc_xac1"), api_truoc.get("Xuc_xac2"), api_truoc.get("Xuc_xac3")],
+        "Tong_truoc": api_truoc.get("Tong"),
+        "Tong": tong,
+        "Du_doan": pred,
+        "Tin_cay": f"{conf}%",
+        "Mau_cau": reason,
+        "So_lan_tai": thongke["tai_count"],
+        "So_lan_xiu": thongke["xiu_count"]
+    })
+
+if __name__ == "__main__":
+    app.run(debug=True)
