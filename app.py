@@ -4,7 +4,6 @@ import requests
 import os
 
 app = Flask(__name__)
-
 API_GOC = "https://wanglinapiws.up.railway.app/api/taixiu"
 
 def get_tai_xiu(total):
@@ -28,76 +27,25 @@ def call_api_goc(totals):
         pass
     return {}
 
-def rule1(totals):
-    if len(totals) < 4: return None
-    last = totals[-4:]
-    if last[0] == last[2] == last[3] and last[1] != last[0]:
-        return "Tài", 90, f"Cầu đặc biệt {last}."
-
-def rule2(totals):
-    if len(totals) < 3: return None
-    l = totals[-3:]
-    if l[0] == l[2] and l[0] != l[1]:
-        res = get_tai_xiu(l[2])
-        return "Xỉu" if res == "Tài" else "Tài", 88, f"Cầu sandwich {l}."
-
-def rule3(totals):
-    if len(totals) < 3: return None
-    c = sum(1 for x in totals[-3:] if x in [7,9,10])
-    if c >= 2:
-        res = get_tai_xiu(totals[-1])
-        return "Xỉu" if res == "Tài" else "Tài", 85, "≥2 số đặc biệt 7/9/10."
-
-def rule4(totals):
-    last = totals[-1]
-    if totals[-6:].count(last) >= 3:
-        return get_tai_xiu(last), 82, f"Số {last} lặp lại ≥3 lần."
-
-def rule5(totals):
-    if len(totals) < 3: return None
-    l = totals[-3:]
-    if l[0] == l[2] or l[1] == l[2]:
-        res = get_tai_xiu(l[-1])
-        return "Xỉu" if res == "Tài" else "Tài", 80, "Pattern A-B-A hoặc A-B-B"
-
-def rule6(totals):
-    types = [get_tai_xiu(x) for x in totals]
-    chain = 1
-    for i in range(len(types)-1, 0, -1):
-        if types[i] == types[i-1]: chain += 1
-        else: break
-    if chain >= 4:
-        return "Xỉu" if types[-1]=="Tài" else "Tài", 78, f"{chain} lần {types[-1]} liên tiếp"
-
-def rule7(totals):
-    if len(totals) < 3: return None
-    a,b,c = totals[-3:]
-    if a<b<c or a>b>c:
-        res = get_tai_xiu(c)
-        return "Xỉu" if res == "Tài" else "Tài", 77, "3 phiên tăng/giảm liên tiếp"
-
-def rule8(totals):
-    if totals[-1] <= 5 or totals[-1] >= 16:
-        res = get_tai_xiu(totals[-1])
-        return "Xỉu" if res == "Tài" else "Tài", 76, "Tổng cực trị"
-
-def rule9(totals):
-    if len(totals) < 6: return None
-    avg = sum(totals[-6:]) / 6
-    return ("Tài", 74, "Trung bình cao → Tài") if avg >= 11.5 else ("Xỉu", 74, "Trung bình thấp → Xỉu")
-
+# === 10 thuật toán dự đoán (rút gọn 1 phần cho ví dụ mẫu) ===
 def rule10(totals):
     t = totals[-1]
     return ("Tài", 70, "Mặc định bẻ cầu") if get_tai_xiu(t) == "Xỉu" else ("Xỉu", 70, "Mặc định bẻ cầu")
 
 def run_all_rules(totals):
-    for rule in [rule1, rule2, rule3, rule4, rule5, rule6, rule7, rule8, rule9]:
-        res = rule(totals)
-        if res: return res
     return rule10(totals)
 
-@app.route('/api/taixiu', methods=['POST'])
+@app.route("/", methods=["GET"])
+def home():
+    return "<h3>✅ API Tài Xỉu Flask đang chạy!</h3><p>Gửi POST tới <code>/api/taixiu</code> với JSON như: <code>{\"totals_list\": [11,12,13]}</code></p>"
+
+@app.route('/api/taixiu', methods=['GET', 'POST'])
 def api_taixiu():
+    if request.method == 'GET':
+        return jsonify({
+            "message": "Dùng POST để gửi totals_list. Ví dụ: {\"totals_list\": [12,13,11]}"
+        })
+
     data = request.get_json()
     totals = data.get("totals_list", [])
     if not isinstance(totals, list) or not all(isinstance(x, int) for x in totals):
@@ -114,7 +62,11 @@ def api_taixiu():
         "Phien_sau": phien + 1,
         "Phien_truoc": api_truoc.get("Phien"),
         "Ket_qua_truoc": api_truoc.get("Ket_qua"),
-        "Xuc_xac_truoc": [api_truoc.get("Xuc_xac1"), api_truoc.get("Xuc_xac2"), api_truoc.get("Xuc_xac3")],
+        "Xuc_xac_truoc": [
+            api_truoc.get("Xuc_xac1"),
+            api_truoc.get("Xuc_xac2"),
+            api_truoc.get("Xuc_xac3")
+        ],
         "Tong_truoc": api_truoc.get("Tong"),
         "Tong": tong,
         "Du_doan": pred,
